@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -23,7 +23,11 @@ import RCTEventEmitter from 'RCTEventEmitter';
  */
 RCTEventEmitter.register(ReactNativeEventEmitter);
 
-EventPluginUtils.injection.injectComponentTree(ReactNativeComponentTree);
+EventPluginUtils.setComponentTree(
+  ReactNativeComponentTree.getFiberCurrentPropsFromNode,
+  ReactNativeComponentTree.getInstanceFromNode,
+  ReactNativeComponentTree.getNodeFromInstance,
+);
 
 ResponderEventPlugin.injection.injectGlobalResponderHandler(
   ReactNativeGlobalResponderHandler,

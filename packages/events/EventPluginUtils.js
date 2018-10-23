@@ -1,34 +1,34 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  */
 
-import ReactErrorUtils from 'shared/ReactErrorUtils';
+import {invokeGuardedCallbackAndCatchFirstError} from 'shared/ReactErrorUtils';
 import invariant from 'shared/invariant';
-import warning from 'shared/warning';
+import warningWithoutStack from 'shared/warningWithoutStack';
 
 export let getFiberCurrentPropsFromNode = null;
 export let getInstanceFromNode = null;
 export let getNodeFromInstance = null;
 
-export const injection = {
-  injectComponentTree: function(Injected) {
-    ({
-      getFiberCurrentPropsFromNode,
-      getInstanceFromNode,
-      getNodeFromInstance,
-    } = Injected);
-    if (__DEV__) {
-      warning(
-        getNodeFromInstance && getInstanceFromNode,
-        'EventPluginUtils.injection.injectComponentTree(...): Injected ' +
-          'module is missing getNodeFromInstance or getInstanceFromNode.',
-      );
-    }
-  },
-};
+export function setComponentTree(
+  getFiberCurrentPropsFromNodeImpl,
+  getInstanceFromNodeImpl,
+  getNodeFromInstanceImpl,
+) {
+  getFiberCurrentPropsFromNode = getFiberCurrentPropsFromNodeImpl;
+  getInstanceFromNode = getInstanceFromNodeImpl;
+  getNodeFromInstance = getNodeFromInstanceImpl;
+  if (__DEV__) {
+    warningWithoutStack(
+      getNodeFromInstance && getInstanceFromNode,
+      'EventPluginUtils.setComponentTree(...): Injected ' +
+        'module is missing getNodeFromInstance or getInstanceFromNode.',
+    );
+  }
+}
 
 let validateEventDispatches;
 if (__DEV__) {
@@ -39,14 +39,18 @@ if (__DEV__) {
     const listenersIsArr = Array.isArray(dispatchListeners);
     const listenersLen = listenersIsArr
       ? dispatchListeners.length
-      : dispatchListeners ? 1 : 0;
+      : dispatchListeners
+        ? 1
+        : 0;
 
     const instancesIsArr = Array.isArray(dispatchInstances);
     const instancesLen = instancesIsArr
       ? dispatchInstances.length
-      : dispatchInstances ? 1 : 0;
+      : dispatchInstances
+        ? 1
+        : 0;
 
-    warning(
+    warningWithoutStack(
       instancesIsArr === listenersIsArr && instancesLen === listenersLen,
       'EventPluginUtils: Invalid `event`.',
     );
@@ -63,12 +67,7 @@ if (__DEV__) {
 function executeDispatch(event, simulated, listener, inst) {
   const type = event.type || 'unknown-event';
   event.currentTarget = getNodeFromInstance(inst);
-  ReactErrorUtils.invokeGuardedCallbackAndCatchFirstError(
-    type,
-    listener,
-    undefined,
-    event,
-  );
+  invokeGuardedCallbackAndCatchFirstError(type, listener, undefined, event);
   event.currentTarget = null;
 }
 

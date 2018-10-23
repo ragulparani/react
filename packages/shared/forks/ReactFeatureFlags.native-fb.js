@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -14,18 +14,18 @@ import typeof * as FeatureFlagsShimType from './ReactFeatureFlags.native-fb';
 
 // Re-export dynamic flags from the fbsource version.
 export const {
-  enableGetDerivedStateFromCatch,
-  enableSuspense,
   debugRenderPhaseSideEffects,
   debugRenderPhaseSideEffectsForStrictMode,
   warnAboutDeprecatedLifecycles,
   replayFailedUnitOfWorkWithInvokeGuardedCallback,
+  disableInputAttributeSyncing,
 } = require('ReactFeatureFlags');
 
 // The rest of the flags are static for better dead code elimination.
 export const enableUserTimingAPI = __DEV__;
-export const warnAboutLegacyContextAPI = __DEV__;
 export const enableProfilerTimer = __PROFILE__;
+export const enableSchedulerTracing = __PROFILE__;
+export const enableSuspenseServerRenderer = false;
 
 // Only used in www builds.
 export function addUserTimingListener() {

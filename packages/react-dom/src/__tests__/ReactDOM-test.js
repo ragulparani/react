@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -9,39 +9,55 @@
 
 'use strict';
 
-let React = require('react');
-let ReactDOM = require('react-dom');
-const ReactTestUtils = require('react-dom/test-utils');
+let React;
+let ReactDOM;
+let ReactDOMServer;
+let ReactTestUtils;
 
 describe('ReactDOM', () => {
-  // TODO: uncomment this test once we can run in phantom, which
-  // supports real submit events.
-  /*
-  it('should bubble onSubmit', function() {
-    const count = 0;
-    const form;
-    const Parent = React.createClass({
-      handleSubmit: function() {
-        count++;
-        return false;
-      },
-      render: function() {
-        return <Child />;
-      }
-    });
-    const Child = React.createClass({
-      render: function() {
-        return <form><input type="submit" value="Submit" /></form>;
-      },
-      componentDidMount: function() {
-        form = ReactDOM.findDOMNode(this);
-      }
-    });
-    const instance = ReactTestUtils.renderIntoDocument(<Parent />);
-    form.submit();
-    expect(count).toEqual(1);
+  beforeEach(() => {
+    jest.resetModules();
+    React = require('react');
+    ReactDOM = require('react-dom');
+    ReactDOMServer = require('react-dom/server');
+    ReactTestUtils = require('react-dom/test-utils');
   });
-  */
+
+  it('should bubble onSubmit', function() {
+    const container = document.createElement('div');
+
+    let count = 0;
+    let buttonRef;
+
+    function Parent() {
+      return (
+        <div
+          onSubmit={event => {
+            event.preventDefault();
+            count++;
+          }}>
+          <Child />
+        </div>
+      );
+    }
+
+    function Child() {
+      return (
+        <form>
+          <input type="submit" ref={button => (buttonRef = button)} />
+        </form>
+      );
+    }
+
+    document.body.appendChild(container);
+    try {
+      ReactDOM.render(<Parent />, container);
+      buttonRef.click();
+      expect(count).toBe(1);
+    } finally {
+      document.body.removeChild(container);
+    }
+  });
 
   it('allows a DOM element to be used with a string', () => {
     const element = React.createElement('div', {className: 'foo'});
@@ -371,7 +387,7 @@ describe('ReactDOM', () => {
     }
   });
 
-  it('should not crash calling findDOMNode inside a functional component', () => {
+  it('should not crash calling findDOMNode inside a function component', () => {
     const container = document.createElement('div');
 
     class Component extends React.Component {
@@ -439,11 +455,74 @@ describe('ReactDOM', () => {
     try {
       delete global.requestAnimationFrame;
       jest.resetModules();
-      expect(() => require('react-dom')).toWarnDev(
+      spyOnDevAndProd(console, 'error');
+      require('react-dom');
+      expect(console.error.calls.count()).toEqual(1);
+      expect(console.error.calls.argsFor(0)[0]).toMatch(
         "This browser doesn't support requestAnimationFrame.",
       );
     } finally {
       global.requestAnimationFrame = previousRAF;
     }
+  });
+
+  it('reports stacks with re-entrant renderToString() calls on the client', () => {
+    function Child2(props) {
+      return <span ariaTypo3="no">{props.children}</span>;
+    }
+
+    function App2() {
+      return (
+        <Child2>
+          {ReactDOMServer.renderToString(<blink ariaTypo2="no" />)}
+        </Child2>
+      );
+    }
+
+    function Child() {
+      return (
+        <span ariaTypo4="no">{ReactDOMServer.renderToString(<App2 />)}</span>
+      );
+    }
+
+    function ServerEntry() {
+      return ReactDOMServer.renderToString(<Child />);
+    }
+
+    function App() {
+      return (
+        <div>
+          <span ariaTypo="no" />
+          <ServerEntry />
+          <font ariaTypo5="no" />
+        </div>
+      );
+    }
+
+    const container = document.createElement('div');
+    expect(() => ReactDOM.render(<App />, container)).toWarnDev([
+      // ReactDOM(App > div > span)
+      'Invalid ARIA attribute `ariaTypo`. ARIA attributes follow the pattern aria-* and must be lowercase.\n' +
+        '    in span (at **)\n' +
+        '    in div (at **)\n' +
+        '    in App (at **)',
+      // ReactDOM(App > div > ServerEntry) >>> ReactDOMServer(Child) >>> ReactDOMServer(App2) >>> ReactDOMServer(blink)
+      'Invalid ARIA attribute `ariaTypo2`. ARIA attributes follow the pattern aria-* and must be lowercase.\n' +
+        '    in blink (at **)',
+      // ReactDOM(App > div > ServerEntry) >>> ReactDOMServer(Child) >>> ReactDOMServer(App2 > Child2 > span)
+      'Invalid ARIA attribute `ariaTypo3`. ARIA attributes follow the pattern aria-* and must be lowercase.\n' +
+        '    in span (at **)\n' +
+        '    in Child2 (at **)\n' +
+        '    in App2 (at **)',
+      // ReactDOM(App > div > ServerEntry) >>> ReactDOMServer(Child > span)
+      'Invalid ARIA attribute `ariaTypo4`. ARIA attributes follow the pattern aria-* and must be lowercase.\n' +
+        '    in span (at **)\n' +
+        '    in Child (at **)',
+      // ReactDOM(App > div > font)
+      'Invalid ARIA attribute `ariaTypo5`. ARIA attributes follow the pattern aria-* and must be lowercase.\n' +
+        '    in font (at **)\n' +
+        '    in div (at **)\n' +
+        '    in App (at **)',
+    ]);
   });
 });

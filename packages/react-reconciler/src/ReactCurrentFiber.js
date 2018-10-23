@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -7,15 +7,19 @@
  * @flow
  */
 
-import {ReactDebugCurrentFrame} from 'shared/ReactGlobalSharedState';
+import ReactSharedInternals from 'shared/ReactSharedInternals';
 import {
   IndeterminateComponent,
-  FunctionalComponent,
+  FunctionComponent,
   ClassComponent,
   HostComponent,
-} from 'shared/ReactTypeOfWork';
+  Mode,
+  LazyComponent,
+} from 'shared/ReactWorkTags';
 import describeComponentFrame from 'shared/describeComponentFrame';
 import getComponentName from 'shared/getComponentName';
+
+const ReactDebugCurrentFrame = ReactSharedInternals.ReactDebugCurrentFrame;
 
 import type {Fiber} from './ReactFiber';
 
@@ -24,15 +28,17 @@ type LifeCyclePhase = 'render' | 'getChildContext';
 function describeFiber(fiber: Fiber): string {
   switch (fiber.tag) {
     case IndeterminateComponent:
-    case FunctionalComponent:
+    case LazyComponent:
+    case FunctionComponent:
     case ClassComponent:
     case HostComponent:
+    case Mode:
       const owner = fiber._debugOwner;
       const source = fiber._debugSource;
-      const name = getComponentName(fiber);
+      const name = getComponentName(fiber.type);
       let ownerName = null;
       if (owner) {
-        ownerName = getComponentName(owner);
+        ownerName = getComponentName(owner.type);
       }
       return describeComponentFrame(name, source, ownerName);
     default:
@@ -60,7 +66,7 @@ export function getCurrentFiberOwnerNameInDevOrNull(): string | null {
     }
     const owner = current._debugOwner;
     if (owner !== null && typeof owner !== 'undefined') {
-      return getComponentName(owner);
+      return getComponentName(owner.type);
     }
   }
   return null;

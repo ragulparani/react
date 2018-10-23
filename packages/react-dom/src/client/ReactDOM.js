@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -29,14 +29,14 @@ import * as EventPluginRegistry from 'events/EventPluginRegistry';
 import * as EventPropagators from 'events/EventPropagators';
 import * as ReactInstanceMap from 'shared/ReactInstanceMap';
 import ReactVersion from 'shared/ReactVersion';
-import {ReactCurrentOwner} from 'shared/ReactGlobalSharedState';
+import ReactSharedInternals from 'shared/ReactSharedInternals';
 import getComponentName from 'shared/getComponentName';
 import invariant from 'shared/invariant';
 import lowPriorityWarning from 'shared/lowPriorityWarning';
-import warning from 'shared/warning';
+import warningWithoutStack from 'shared/warningWithoutStack';
 
 import * as ReactDOMComponentTree from './ReactDOMComponentTree';
-import * as ReactDOMFiberComponent from './ReactDOMFiberComponent';
+import {restoreControlledState} from './ReactDOMComponent';
 import * as ReactDOMEventListener from '../events/ReactDOMEventListener';
 import {
   ELEMENT_NODE,
@@ -45,6 +45,8 @@ import {
   DOCUMENT_FRAGMENT_NODE,
 } from '../shared/HTMLNodeType';
 import {ROOT_ATTRIBUTE_NAME} from '../shared/DOMProperty';
+
+const ReactCurrentOwner = ReactSharedInternals.ReactCurrentOwner;
 
 let topLevelUpdateWarnings;
 let warnOnInvalidCallback;
@@ -62,7 +64,7 @@ if (__DEV__) {
     typeof Set.prototype.clear !== 'function' ||
     typeof Set.prototype.forEach !== 'function'
   ) {
-    warning(
+    warningWithoutStack(
       false,
       'React depends on Map and Set built-in types. Make sure that you load a ' +
         'polyfill in older browsers. https://fb.me/react-polyfills',
@@ -75,7 +77,7 @@ if (__DEV__) {
         container._reactRootContainer._internalRoot.current,
       );
       if (hostInstance) {
-        warning(
+        warningWithoutStack(
           hostInstance.parentNode === container,
           'render(...): It looks like the React-rendered content of this ' +
             'container was removed without using React. This is not ' +
@@ -91,7 +93,7 @@ if (__DEV__) {
       rootEl && ReactDOMComponentTree.getInstanceFromNode(rootEl)
     );
 
-    warning(
+    warningWithoutStack(
       !hasNonRootReactChild || isRootRenderedBySomeReact,
       'render(...): Replacing React-rendered children with a new root ' +
         'component. If you intended to update the children of this node, ' +
@@ -99,7 +101,7 @@ if (__DEV__) {
         'and render the new components instead of calling ReactDOM.render.',
     );
 
-    warning(
+    warningWithoutStack(
       container.nodeType !== ELEMENT_NODE ||
         !((container: any): Element).tagName ||
         ((container: any): Element).tagName.toUpperCase() !== 'BODY',
@@ -112,7 +114,7 @@ if (__DEV__) {
   };
 
   warnOnInvalidCallback = function(callback: mixed, callerName: string) {
-    warning(
+    warningWithoutStack(
       callback === null || typeof callback === 'function',
       '%s(...): Expected the last optional `callback` argument to be a ' +
         'function. Instead received: %s.',
@@ -122,11 +124,9 @@ if (__DEV__) {
   };
 }
 
-ReactControlledComponent.injection.injectFiberControlledHostComponent(
-  ReactDOMFiberComponent,
-);
+ReactControlledComponent.setRestoreImplementation(restoreControlledState);
 
-type DOMContainer =
+export type DOMContainer =
   | (Element & {
       _reactRootContainer: ?Root,
     })
@@ -139,7 +139,7 @@ type Batch = FiberRootBatch & {
   then(onComplete: () => mixed): void,
   commit(): void,
 
-  // The ReactRoot constuctor is hoisted but the prototype methods are not. If
+  // The ReactRoot constructor is hoisted but the prototype methods are not. If
   // we move ReactRoot to be above ReactBatch, the inverse error occurs.
   // $FlowFixMe Hoisting issue.
   _root: Root,
@@ -148,6 +148,19 @@ type Batch = FiberRootBatch & {
 
   _callbacks: Array<() => mixed> | null,
   _didComplete: boolean,
+};
+
+type Root = {
+  render(children: ReactNodeList, callback: ?() => mixed): Work,
+  unmount(callback: ?() => mixed): Work,
+  legacy_renderSubtreeIntoContainer(
+    parentComponent: ?React$Component<any, any>,
+    children: ReactNodeList,
+    callback: ?() => mixed,
+  ): Work,
+  createBatch(): Batch,
+
+  _internalRoot: FiberRoot,
 };
 
 function ReactBatch(root: ReactRoot) {
@@ -317,21 +330,12 @@ ReactWork.prototype._onCommit = function(): void {
   }
 };
 
-type Root = {
-  render(children: ReactNodeList, callback: ?() => mixed): Work,
-  unmount(callback: ?() => mixed): Work,
-  legacy_renderSubtreeIntoContainer(
-    parentComponent: ?React$Component<any, any>,
-    children: ReactNodeList,
-    callback: ?() => mixed,
-  ): Work,
-  createBatch(): Batch,
-
-  _internalRoot: FiberRoot,
-};
-
-function ReactRoot(container: Container, isAsync: boolean, hydrate: boolean) {
-  const root = DOMRenderer.createContainer(container, isAsync, hydrate);
+function ReactRoot(
+  container: Container,
+  isConcurrent: boolean,
+  hydrate: boolean,
+) {
+  const root = DOMRenderer.createContainer(container, isConcurrent, hydrate);
   this._internalRoot = root;
 }
 ReactRoot.prototype.render = function(
@@ -448,7 +452,11 @@ function shouldHydrateDueToLegacyHeuristic(container) {
   );
 }
 
-ReactGenericBatching.injection.injectRenderer(DOMRenderer);
+ReactGenericBatching.setBatchingImplementation(
+  DOMRenderer.batchedUpdates,
+  DOMRenderer.interactiveUpdates,
+  DOMRenderer.flushInteractiveUpdates,
+);
 
 let warnedAboutHydrateAPI = false;
 
@@ -470,7 +478,7 @@ function legacyCreateRootFromDOMContainer(
           (rootSibling: any).hasAttribute(ROOT_ATTRIBUTE_NAME)
         ) {
           warned = true;
-          warning(
+          warningWithoutStack(
             false,
             'render(): Target node has markup rendered by React, but there ' +
               'are unrelated nodes as well. This is most commonly caused by ' +
@@ -493,8 +501,8 @@ function legacyCreateRootFromDOMContainer(
     }
   }
   // Legacy roots are not async by default.
-  const isAsync = false;
-  return new ReactRoot(container, isAsync, shouldHydrate);
+  const isConcurrent = false;
+  return new ReactRoot(container, isConcurrent, shouldHydrate);
 }
 
 function legacyRenderSubtreeIntoContainer(
@@ -588,14 +596,14 @@ const ReactDOM: Object = {
       if (owner !== null && owner.stateNode !== null) {
         const warnedAboutRefsInRender =
           owner.stateNode._warnedAboutRefsInRender;
-        warning(
+        warningWithoutStack(
           warnedAboutRefsInRender,
           '%s is accessing findDOMNode inside its render(). ' +
             'render() should be a pure function of props and state. It should ' +
             'never access something that requires stale data from the previous ' +
             'render, such as refs. Move this logic to componentDidMount and ' +
             'componentDidUpdate instead.',
-          getComponentName(owner) || 'A component',
+          getComponentName(owner.type) || 'A component',
         );
         owner.stateNode._warnedAboutRefsInRender = true;
       }
@@ -606,7 +614,12 @@ const ReactDOM: Object = {
     if ((componentOrElement: any).nodeType === ELEMENT_NODE) {
       return (componentOrElement: any);
     }
-
+    if (__DEV__) {
+      return DOMRenderer.findHostInstanceWithWarning(
+        componentOrElement,
+        'findDOMNode',
+      );
+    }
     return DOMRenderer.findHostInstance(componentOrElement);
   },
 
@@ -665,7 +678,7 @@ const ReactDOM: Object = {
         const rootEl = getReactRootElementInContainer(container);
         const renderedByDifferentReact =
           rootEl && !ReactDOMComponentTree.getInstanceFromNode(rootEl);
-        warning(
+        warningWithoutStack(
           !renderedByDifferentReact,
           "unmountComponentAtNode(): The node you're attempting to unmount " +
             'was rendered by another copy of React.',
@@ -690,11 +703,11 @@ const ReactDOM: Object = {
 
         // Check if the container itself is a React root node.
         const isContainerReactRoot =
-          container.nodeType === 1 &&
+          container.nodeType === ELEMENT_NODE &&
           isValidContainer(container.parentNode) &&
           !!container.parentNode._reactRootContainer;
 
-        warning(
+        warningWithoutStack(
           !hasNonRootReactChild,
           "unmountComponentAtNode(): The node you're attempting to unmount " +
             'was rendered by React and is not a top-level container. %s',
@@ -728,8 +741,6 @@ const ReactDOM: Object = {
 
   unstable_batchedUpdates: DOMRenderer.batchedUpdates,
 
-  unstable_deferredUpdates: DOMRenderer.deferredUpdates,
-
   unstable_interactiveUpdates: DOMRenderer.interactiveUpdates,
 
   flushSync: DOMRenderer.flushSync,
@@ -737,14 +748,21 @@ const ReactDOM: Object = {
   unstable_flushControlled: DOMRenderer.flushControlled,
 
   __SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED: {
-    // For TapEventPlugin which is popular in open source
-    EventPluginHub,
-    // Used by test-utils
-    EventPluginRegistry,
-    EventPropagators,
-    ReactControlledComponent,
-    ReactDOMComponentTree,
-    ReactDOMEventListener,
+    // Keep in sync with ReactDOMUnstableNativeDependencies.js
+    // and ReactTestUtils.js. This is an array for better minification.
+    Events: [
+      ReactDOMComponentTree.getInstanceFromNode,
+      ReactDOMComponentTree.getNodeFromInstance,
+      ReactDOMComponentTree.getFiberCurrentPropsFromNode,
+      EventPluginHub.injection.injectEventPluginsByName,
+      EventPluginRegistry.eventNameDispatchConfigs,
+      EventPropagators.accumulateTwoPhaseDispatches,
+      EventPropagators.accumulateDirectDispatches,
+      ReactControlledComponent.enqueueStateRestore,
+      ReactControlledComponent.restoreStateIfNeeded,
+      ReactDOMEventListener.dispatchEvent,
+      EventPluginHub.runEventsInBatch,
+    ],
   },
 };
 
@@ -756,6 +774,10 @@ ReactDOM.unstable_createRoot = function createRoot(
   container: DOMContainer,
   options?: RootOptions,
 ): ReactRoot {
+  invariant(
+    isValidContainer(container),
+    'unstable_createRoot(...): Target container is not a DOM element.',
+  );
   const hydrate = options != null && options.hydrate === true;
   return new ReactRoot(container, true, hydrate);
 };

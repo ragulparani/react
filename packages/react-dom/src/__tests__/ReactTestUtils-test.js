@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -53,6 +53,16 @@ describe('ReactTestUtils', () => {
     MockedComponent.prototype.render = jest.fn();
 
     // Patch it up so it returns its children.
+    expect(() =>
+      ReactTestUtils.mockComponent(MockedComponent),
+    ).toLowPriorityWarnDev(
+      'ReactTestUtils.mockComponent() is deprecated. ' +
+        'Use shallow rendering or jest.mock() instead.\n\n' +
+        'See https://fb.me/test-utils-mock-component for more information.',
+      {withoutStack: true},
+    );
+
+    // De-duplication check
     ReactTestUtils.mockComponent(MockedComponent);
 
     const container = document.createElement('div');
@@ -249,7 +259,7 @@ describe('ReactTestUtils', () => {
   });
 
   it('can scry with stateless components involved', () => {
-    const Stateless = () => (
+    const Function = () => (
       <div>
         <hr />
       </div>
@@ -259,7 +269,7 @@ describe('ReactTestUtils', () => {
       render() {
         return (
           <div>
-            <Stateless />
+            <Function />
             <hr />
           </div>
         );
@@ -269,6 +279,62 @@ describe('ReactTestUtils', () => {
     const inst = ReactTestUtils.renderIntoDocument(<SomeComponent />);
     const hrs = ReactTestUtils.scryRenderedDOMComponentsWithTag(inst, 'hr');
     expect(hrs.length).toBe(2);
+  });
+
+  it('provides a clear error when passing invalid objects to scry', () => {
+    // This is probably too relaxed but it's existing behavior.
+    ReactTestUtils.findAllInRenderedTree(null, 'span');
+    ReactTestUtils.findAllInRenderedTree(undefined, 'span');
+    ReactTestUtils.findAllInRenderedTree('', 'span');
+    ReactTestUtils.findAllInRenderedTree(0, 'span');
+    ReactTestUtils.findAllInRenderedTree(false, 'span');
+
+    expect(() => {
+      ReactTestUtils.findAllInRenderedTree([], 'span');
+    }).toThrow(
+      'findAllInRenderedTree(...): the first argument must be a React class instance. ' +
+        'Instead received: an array.',
+    );
+    expect(() => {
+      ReactTestUtils.scryRenderedDOMComponentsWithClass(10, 'button');
+    }).toThrow(
+      'scryRenderedDOMComponentsWithClass(...): the first argument must be a React class instance. ' +
+        'Instead received: 10.',
+    );
+    expect(() => {
+      ReactTestUtils.findRenderedDOMComponentWithClass('hello', 'button');
+    }).toThrow(
+      'findRenderedDOMComponentWithClass(...): the first argument must be a React class instance. ' +
+        'Instead received: hello.',
+    );
+    expect(() => {
+      ReactTestUtils.scryRenderedDOMComponentsWithTag(
+        {x: true, y: false},
+        'span',
+      );
+    }).toThrow(
+      'scryRenderedDOMComponentsWithTag(...): the first argument must be a React class instance. ' +
+        'Instead received: object with keys {x, y}.',
+    );
+    const div = document.createElement('div');
+    expect(() => {
+      ReactTestUtils.findRenderedDOMComponentWithTag(div, 'span');
+    }).toThrow(
+      'findRenderedDOMComponentWithTag(...): the first argument must be a React class instance. ' +
+        'Instead received: a DOM node.',
+    );
+    expect(() => {
+      ReactTestUtils.scryRenderedComponentsWithType(true, 'span');
+    }).toThrow(
+      'scryRenderedComponentsWithType(...): the first argument must be a React class instance. ' +
+        'Instead received: true.',
+    );
+    expect(() => {
+      ReactTestUtils.findRenderedComponentWithType(true, 'span');
+    }).toThrow(
+      'findRenderedComponentWithType(...): the first argument must be a React class instance. ' +
+        'Instead received: true.',
+    );
   });
 
   describe('Simulate', () => {

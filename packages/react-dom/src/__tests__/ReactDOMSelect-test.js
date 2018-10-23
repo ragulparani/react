@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -545,6 +545,38 @@ describe('ReactDOMSelect', () => {
     expect(node.options[2].selected).toBe(false); // gorilla
   });
 
+  it('should support options with dynamic children', () => {
+    const container = document.createElement('div');
+
+    let node;
+
+    function App({value}) {
+      return (
+        <select value={value} ref={n => (node = n)} onChange={noop}>
+          <option key="monkey" value="monkey">
+            A monkey {value === 'monkey' ? 'is chosen' : null}!
+          </option>
+          <option key="giraffe" value="giraffe">
+            A giraffe {value === 'giraffe' && 'is chosen'}!
+          </option>
+          <option key="gorilla" value="gorilla">
+            A gorilla {value === 'gorilla' && 'is chosen'}!
+          </option>
+        </select>
+      );
+    }
+
+    ReactDOM.render(<App value="monkey" />, container);
+    expect(node.options[0].selected).toBe(true); // monkey
+    expect(node.options[1].selected).toBe(false); // giraffe
+    expect(node.options[2].selected).toBe(false); // gorilla
+
+    ReactDOM.render(<App value="giraffe" />, container);
+    expect(node.options[0].selected).toBe(false); // monkey
+    expect(node.options[1].selected).toBe(true); // giraffe
+    expect(node.options[2].selected).toBe(false); // gorilla
+  });
+
   it('should warn if value is null', () => {
     expect(() =>
       ReactTestUtils.renderIntoDocument(
@@ -566,24 +598,21 @@ describe('ReactDOMSelect', () => {
   });
 
   it('should warn if selected is set on <option>', () => {
-    expect(() =>
-      ReactTestUtils.renderIntoDocument(
+    function App() {
+      return (
         <select>
           <option selected={true} />
           <option selected={true} />
-        </select>,
-      ),
-    ).toWarnDev(
+        </select>
+      );
+    }
+
+    expect(() => ReactTestUtils.renderIntoDocument(<App />)).toWarnDev(
       'Use the `defaultValue` or `value` props on <select> instead of ' +
         'setting `selected` on <option>.',
     );
 
-    ReactTestUtils.renderIntoDocument(
-      <select>
-        <option selected={true} />
-        <option selected={true} />
-      </select>,
-    );
+    ReactTestUtils.renderIntoDocument(<App />);
   });
 
   it('should warn if value is null and multiple is true', () => {
@@ -615,11 +644,20 @@ describe('ReactDOMSelect', () => {
         <option value="gorilla">A gorilla!</option>
       </select>
     );
-    const node = ReactTestUtils.renderIntoDocument(stub);
+    const container = document.createElement('div');
+    document.body.appendChild(container);
 
-    ReactTestUtils.Simulate.change(node);
+    try {
+      const node = ReactDOM.render(stub, container);
 
-    expect(node.value).toBe('giraffe');
+      node.dispatchEvent(
+        new Event('change', {bubbles: true, cancelable: false}),
+      );
+
+      expect(node.value).toBe('giraffe');
+    } finally {
+      document.body.removeChild(container);
+    }
   });
 
   it('should warn if value and defaultValue props are specified', () => {
@@ -646,6 +684,13 @@ describe('ReactDOMSelect', () => {
         <option value="gorilla">A gorilla!</option>
       </select>,
     );
+  });
+
+  it('should not warn about missing onChange in uncontrolled textareas', () => {
+    const container = document.createElement('div');
+    ReactDOM.render(<select />, container);
+    ReactDOM.unmountComponentAtNode(container);
+    ReactDOM.render(<select value={undefined} />, container);
   });
 
   it('should be able to safely remove select onChange', () => {
@@ -746,5 +791,193 @@ describe('ReactDOMSelect', () => {
     expect(selectNode.value).toEqual('gorilla');
 
     document.body.removeChild(container);
+  });
+
+  it('should not select first option by default when multiple is set and no defaultValue is set', () => {
+    const stub = (
+      <select multiple={true} onChange={noop}>
+        <option value="a">a</option>
+        <option value="b">b</option>
+        <option value="c">c</option>
+      </select>
+    );
+    const container = document.createElement('div');
+    const node = ReactDOM.render(stub, container);
+
+    expect(node.options[0].selected).toBe(false); // a
+    expect(node.options[1].selected).toBe(false); // b
+    expect(node.options[2].selected).toBe(false); // c
+  });
+
+  describe('When given a Symbol value', () => {
+    it('treats initial Symbol value as an empty string', () => {
+      let node;
+
+      expect(() => {
+        node = ReactTestUtils.renderIntoDocument(
+          <select onChange={noop} value={Symbol('foobar')}>
+            <option value={Symbol('foobar')}>A Symbol!</option>
+            <option value="monkey">A monkey!</option>
+            <option value="giraffe">A giraffe!</option>
+          </select>,
+        );
+      }).toWarnDev('Invalid value for prop `value`');
+
+      expect(node.value).toBe('');
+    });
+
+    it('treats updated Symbol value as an empty string', () => {
+      let node;
+
+      expect(() => {
+        node = ReactTestUtils.renderIntoDocument(
+          <select onChange={noop} value="monkey">
+            <option value={Symbol('foobar')}>A Symbol!</option>
+            <option value="monkey">A monkey!</option>
+            <option value="giraffe">A giraffe!</option>
+          </select>,
+        );
+      }).toWarnDev('Invalid value for prop `value`');
+
+      expect(node.value).toBe('monkey');
+
+      node = ReactTestUtils.renderIntoDocument(
+        <select onChange={noop} value={Symbol('foobar')}>
+          <option value={Symbol('foobar')}>A Symbol!</option>
+          <option value="monkey">A monkey!</option>
+          <option value="giraffe">A giraffe!</option>
+        </select>,
+      );
+
+      expect(node.value).toBe('');
+    });
+
+    it('treats initial Symbol defaultValue as an empty string', () => {
+      let node;
+
+      expect(() => {
+        node = ReactTestUtils.renderIntoDocument(
+          <select defaultValue={Symbol('foobar')}>
+            <option value={Symbol('foobar')}>A Symbol!</option>
+            <option value="monkey">A monkey!</option>
+            <option value="giraffe">A giraffe!</option>
+          </select>,
+        );
+      }).toWarnDev('Invalid value for prop `value`');
+
+      expect(node.value).toBe('');
+    });
+
+    it('treats updated Symbol defaultValue as an empty string', () => {
+      let node;
+
+      expect(() => {
+        node = ReactTestUtils.renderIntoDocument(
+          <select defaultValue="monkey">
+            <option value={Symbol('foobar')}>A Symbol!</option>
+            <option value="monkey">A monkey!</option>
+            <option value="giraffe">A giraffe!</option>
+          </select>,
+        );
+      }).toWarnDev('Invalid value for prop `value`');
+
+      expect(node.value).toBe('monkey');
+
+      node = ReactTestUtils.renderIntoDocument(
+        <select defaultValue={Symbol('foobar')}>
+          <option value={Symbol('foobar')}>A Symbol!</option>
+          <option value="monkey">A monkey!</option>
+          <option value="giraffe">A giraffe!</option>
+        </select>,
+      );
+
+      expect(node.value).toBe('');
+    });
+  });
+
+  describe('When given a function value', () => {
+    it('treats initial function value as an empty string', () => {
+      let node;
+
+      expect(() => {
+        node = ReactTestUtils.renderIntoDocument(
+          <select onChange={noop} value={() => {}}>
+            <option value={() => {}}>A function!</option>
+            <option value="monkey">A monkey!</option>
+            <option value="giraffe">A giraffe!</option>
+          </select>,
+        );
+      }).toWarnDev('Invalid value for prop `value`');
+
+      expect(node.value).toBe('');
+    });
+
+    it('treats initial function defaultValue as an empty string', () => {
+      let node;
+
+      expect(() => {
+        node = ReactTestUtils.renderIntoDocument(
+          <select defaultValue={() => {}}>
+            <option value={() => {}}>A function!</option>
+            <option value="monkey">A monkey!</option>
+            <option value="giraffe">A giraffe!</option>
+          </select>,
+        );
+      }).toWarnDev('Invalid value for prop `value`');
+
+      expect(node.value).toBe('');
+    });
+
+    it('treats updated function value as an empty string', () => {
+      let node;
+
+      expect(() => {
+        node = ReactTestUtils.renderIntoDocument(
+          <select onChange={noop} value="monkey">
+            <option value={() => {}}>A function!</option>
+            <option value="monkey">A monkey!</option>
+            <option value="giraffe">A giraffe!</option>
+          </select>,
+        );
+      }).toWarnDev('Invalid value for prop `value`');
+
+      expect(node.value).toBe('monkey');
+
+      node = ReactTestUtils.renderIntoDocument(
+        <select onChange={noop} value={() => {}}>
+          <option value={() => {}}>A function!</option>
+          <option value="monkey">A monkey!</option>
+          <option value="giraffe">A giraffe!</option>
+        </select>,
+      );
+
+      expect(node.value).toBe('');
+    });
+
+    it('treats updated function defaultValue as an empty string', () => {
+      let node;
+
+      expect(() => {
+        node = ReactTestUtils.renderIntoDocument(
+          <select defaultValue="monkey">
+            <option value={() => {}}>A function!</option>
+            <option value="monkey">A monkey!</option>
+            <option value="giraffe">A giraffe!</option>
+          </select>,
+        );
+      }).toWarnDev('Invalid value for prop `value`');
+
+      expect(node.value).toBe('monkey');
+
+      node = ReactTestUtils.renderIntoDocument(
+        <select defaultValue={() => {}}>
+          <option value={() => {}}>A function!</option>
+          <option value="monkey">A monkey!</option>
+          <option value="giraffe">A giraffe!</option>
+        </select>,
+      );
+
+      expect(node.value).toBe('');
+    });
   });
 });

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -58,7 +58,7 @@ module.exports = function(initModules) {
       if (console.error.calls.count() > 0) {
         console.log(`We saw these warnings:`);
         for (let i = 0; i < console.error.calls.count(); i++) {
-          console.log(console.error.calls.argsFor(i)[0]);
+          console.log(...console.error.calls.argsFor(i));
         }
       }
     }

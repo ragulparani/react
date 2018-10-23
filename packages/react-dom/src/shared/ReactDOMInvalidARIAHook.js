@@ -1,12 +1,11 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  */
 
 import warning from 'shared/warning';
-import {ReactDebugCurrentFrame} from 'shared/ReactGlobalSharedState';
 
 import {ATTRIBUTE_NAME_CHAR} from './DOMProperty';
 import isCustomComponent from './isCustomComponent';
@@ -34,9 +33,8 @@ function validateProperty(tagName, name) {
     if (correctName == null) {
       warning(
         false,
-        'Invalid ARIA attribute `%s`. ARIA attributes follow the pattern aria-* and must be lowercase.%s',
+        'Invalid ARIA attribute `%s`. ARIA attributes follow the pattern aria-* and must be lowercase.',
         name,
-        ReactDebugCurrentFrame.getStackAddendum(),
       );
       warnedProperties[name] = true;
       return true;
@@ -45,10 +43,9 @@ function validateProperty(tagName, name) {
     if (name !== correctName) {
       warning(
         false,
-        'Invalid ARIA attribute `%s`. Did you mean `%s`?%s',
+        'Invalid ARIA attribute `%s`. Did you mean `%s`?',
         name,
         correctName,
-        ReactDebugCurrentFrame.getStackAddendum(),
       );
       warnedProperties[name] = true;
       return true;
@@ -71,10 +68,9 @@ function validateProperty(tagName, name) {
     if (name !== standardName) {
       warning(
         false,
-        'Unknown ARIA attribute `%s`. Did you mean `%s`?%s',
+        'Unknown ARIA attribute `%s`. Did you mean `%s`?',
         name,
         standardName,
-        ReactDebugCurrentFrame.getStackAddendum(),
       );
       warnedProperties[name] = true;
       return true;
@@ -102,19 +98,17 @@ function warnInvalidARIAProps(type, props) {
     warning(
       false,
       'Invalid aria prop %s on <%s> tag. ' +
-        'For details, see https://fb.me/invalid-aria-prop%s',
+        'For details, see https://fb.me/invalid-aria-prop',
       unknownPropString,
       type,
-      ReactDebugCurrentFrame.getStackAddendum(),
     );
   } else if (invalidProps.length > 1) {
     warning(
       false,
       'Invalid aria props %s on <%s> tag. ' +
-        'For details, see https://fb.me/invalid-aria-prop%s',
+        'For details, see https://fb.me/invalid-aria-prop',
       unknownPropString,
       type,
-      ReactDebugCurrentFrame.getStackAddendum(),
     );
   }
 }

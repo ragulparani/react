@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -26,24 +26,27 @@ import ReactNativeComponent from './ReactNativeComponent';
 import * as ReactNativeComponentTree from './ReactNativeComponentTree';
 import {getInspectorDataForViewTag} from './ReactNativeFiberInspector';
 
-import {ReactCurrentOwner} from 'shared/ReactGlobalSharedState';
+import ReactSharedInternals from 'shared/ReactSharedInternals';
 import getComponentName from 'shared/getComponentName';
-import warning from 'shared/warning';
+import warningWithoutStack from 'shared/warningWithoutStack';
 
+const ReactCurrentOwner = ReactSharedInternals.ReactCurrentOwner;
 const findHostInstance = ReactNativeFiberRenderer.findHostInstance;
+const findHostInstanceWithWarning =
+  ReactNativeFiberRenderer.findHostInstanceWithWarning;
 
 function findNodeHandle(componentOrHandle: any): ?number {
   if (__DEV__) {
     const owner = ReactCurrentOwner.current;
     if (owner !== null && owner.stateNode !== null) {
-      warning(
+      warningWithoutStack(
         owner.stateNode._warnedAboutRefsInRender,
         '%s is accessing findNodeHandle inside its render(). ' +
           'render() should be a pure function of props and state. It should ' +
           'never access something that requires stale data from the previous ' +
           'render, such as refs. Move this logic to componentDidMount and ' +
           'componentDidUpdate instead.',
-        getComponentName(owner) || 'A component',
+        getComponentName(owner.type) || 'A component',
       );
 
       owner.stateNode._warnedAboutRefsInRender = true;
@@ -62,7 +65,16 @@ function findNodeHandle(componentOrHandle: any): ?number {
   if (componentOrHandle.canonical && componentOrHandle.canonical._nativeTag) {
     return componentOrHandle.canonical._nativeTag;
   }
-  const hostInstance = findHostInstance(componentOrHandle);
+  let hostInstance;
+  if (__DEV__) {
+    hostInstance = findHostInstanceWithWarning(
+      componentOrHandle,
+      'findNodeHandle',
+    );
+  } else {
+    hostInstance = findHostInstance(componentOrHandle);
+  }
+
   if (hostInstance == null) {
     return hostInstance;
   }
@@ -73,7 +85,11 @@ function findNodeHandle(componentOrHandle: any): ?number {
   return hostInstance._nativeTag;
 }
 
-ReactGenericBatching.injection.injectRenderer(ReactNativeFiberRenderer);
+ReactGenericBatching.setBatchingImplementation(
+  ReactNativeFiberRenderer.batchedUpdates,
+  ReactNativeFiberRenderer.interactiveUpdates,
+  ReactNativeFiberRenderer.flushInteractiveUpdates,
+);
 
 function computeComponentStackForErrorReporting(reactTag: number): string {
   let fiber = ReactNativeComponentTree.getClosestInstanceFromNode(reactTag);

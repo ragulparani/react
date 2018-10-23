@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -242,6 +242,17 @@ export function findEarliestOutstandingPriorityLevel(
   return earliestExpirationTime;
 }
 
+export function didExpireAtExpirationTime(
+  root: FiberRoot,
+  currentTime: ExpirationTime,
+): void {
+  const expirationTime = root.expirationTime;
+  if (expirationTime !== NoWork && currentTime >= expirationTime) {
+    // The root has expired. Flush all work up to the current time.
+    root.nextExpirationTimeToWorkOn = currentTime;
+  }
+}
+
 function findNextExpirationTimeToWorkOn(completedExpirationTime, root) {
   const earliestSuspendedTime = root.earliestSuspendedTime;
   const latestSuspendedTime = root.latestSuspendedTime;
@@ -253,7 +264,7 @@ function findNextExpirationTimeToWorkOn(completedExpirationTime, root) {
   let nextExpirationTimeToWorkOn =
     earliestPendingTime !== NoWork ? earliestPendingTime : latestPingedTime;
 
-  // If there is no pending or pinted work, check if there's suspended work
+  // If there is no pending or pinged work, check if there's suspended work
   // that's lower priority than what we just completed.
   if (
     nextExpirationTimeToWorkOn === NoWork &&

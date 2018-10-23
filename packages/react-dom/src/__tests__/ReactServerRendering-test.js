@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -13,6 +13,7 @@
 let React;
 let ReactDOMServer;
 let PropTypes;
+let ReactCurrentOwner;
 
 function normalizeCodeLocInfo(str) {
   return str && str.replace(/\(at .+?:\d+\)/g, '(at **)');
@@ -24,6 +25,9 @@ describe('ReactDOMServer', () => {
     React = require('react');
     PropTypes = require('prop-types');
     ReactDOMServer = require('react-dom/server');
+    ReactCurrentOwner =
+      React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED
+        .ReactCurrentOwner;
   });
 
   describe('renderToString', () => {
@@ -173,6 +177,19 @@ describe('ReactDOMServer', () => {
           "a string. For example, style={{marginRight: spacing + 'em'}} when using JSX." +
           (__DEV__ ? '\n    in iframe (at **)' : ''),
       );
+    });
+
+    it('should not crash on poisoned hasOwnProperty', () => {
+      let html;
+      expect(
+        () =>
+          (html = ReactDOMServer.renderToString(
+            <div hasOwnProperty="poison">
+              <span unknown="test" />
+            </div>,
+          )),
+      ).toWarnDev(['React does not recognize the `hasOwnProperty` prop']);
+      expect(html).toContain('<span unknown="test">');
     });
   });
 
@@ -418,6 +435,44 @@ describe('ReactDOMServer', () => {
       expect(results).toEqual([2, 1, 3, 1]);
     });
 
+    it('renders with dispatcher.readContext mechanism', () => {
+      const Context = React.createContext(0);
+
+      function readContext(context) {
+        return ReactCurrentOwner.currentDispatcher.readContext(context);
+      }
+
+      function Consumer(props) {
+        return 'Result: ' + readContext(Context);
+      }
+
+      const Indirection = React.Fragment;
+
+      function App(props) {
+        return (
+          <Context.Provider value={props.value}>
+            <Context.Provider value={2}>
+              <Consumer />
+            </Context.Provider>
+            <Indirection>
+              <Indirection>
+                <Consumer />
+                <Context.Provider value={3}>
+                  <Consumer />
+                </Context.Provider>
+              </Indirection>
+            </Indirection>
+            <Consumer />
+          </Context.Provider>
+        );
+      }
+
+      const markup = ReactDOMServer.renderToString(<App value={1} />);
+      // Extract the numbers rendered by the consumers
+      const results = markup.match(/\d+/g).map(Number);
+      expect(results).toEqual([2, 1, 3, 1]);
+    });
+
     it('renders context API, reentrancy', () => {
       const Context = React.createContext(0);
 
@@ -519,6 +574,7 @@ describe('ReactDOMServer', () => {
       'Warning: setState(...): Can only update a mounting component.' +
         ' This usually means you called setState() outside componentWillMount() on the server.' +
         ' This is a no-op.\n\nPlease check the code for the Foo component.',
+      {withoutStack: true},
     );
 
     const markup = ReactDOMServer.renderToStaticMarkup(<Foo />);
@@ -546,9 +602,33 @@ describe('ReactDOMServer', () => {
       'Warning: forceUpdate(...): Can only update a mounting component. ' +
         'This usually means you called forceUpdate() outside componentWillMount() on the server. ' +
         'This is a no-op.\n\nPlease check the code for the Baz component.',
+      {withoutStack: true},
     );
     const markup = ReactDOMServer.renderToStaticMarkup(<Baz />);
     expect(markup).toBe('<div></div>');
+  });
+
+  it('throws for unsupported types on the server', () => {
+    expect(() => {
+      ReactDOMServer.renderToString(<React.Suspense />);
+    }).toThrow('ReactDOMServer does not yet support Suspense.');
+
+    async function fakeImport(result) {
+      return {default: result};
+    }
+
+    expect(() => {
+      const LazyFoo = React.lazy(() =>
+        fakeImport(
+          new Promise(resolve =>
+            resolve(function Foo() {
+              return <div />;
+            }),
+          ),
+        ),
+      );
+      ReactDOMServer.renderToString(<LazyFoo />);
+    }).toThrow('ReactDOMServer does not yet support lazy-loaded components.');
   });
 
   it('should throw (in dev) when children are mutated during render', () => {
@@ -631,12 +711,13 @@ describe('ReactDOMServer', () => {
     expect(() => {
       expect(() =>
         ReactDOMServer.renderToString(<ClassWithRenderNotExtended />),
-      ).toWarnDev(
-        'Warning: The <ClassWithRenderNotExtended /> component appears to have a render method, ' +
-          "but doesn't extend React.Component. This is likely to cause errors. " +
-          'Change ClassWithRenderNotExtended to extend React.Component instead.',
-      );
-    }).toThrow(TypeError);
+      ).toThrow(TypeError);
+    }).toWarnDev(
+      'Warning: The <ClassWithRenderNotExtended /> component appears to have a render method, ' +
+        "but doesn't extend React.Component. This is likely to cause errors. " +
+        'Change ClassWithRenderNotExtended to extend React.Component instead.',
+      {withoutStack: true},
+    );
 
     // Test deduplication
     expect(() => {
@@ -716,6 +797,63 @@ describe('ReactDOMServer', () => {
         '    in span (at **)\n' +
         '    in Child (at **)\n' +
         '    in span (at **)\n' +
+        '    in div (at **)\n' +
+        '    in App (at **)',
+    ]);
+  });
+
+  it('reports stacks with re-entrant renderToString() calls', () => {
+    function Child2(props) {
+      return <span ariaTypo3="no">{props.children}</span>;
+    }
+
+    function App2() {
+      return (
+        <Child2>
+          {ReactDOMServer.renderToString(<blink ariaTypo2="no" />)}
+        </Child2>
+      );
+    }
+
+    function Child() {
+      return (
+        <span ariaTypo4="no">{ReactDOMServer.renderToString(<App2 />)}</span>
+      );
+    }
+
+    function App() {
+      return (
+        <div>
+          <span ariaTypo="no" />
+          <Child />
+          <font ariaTypo5="no" />
+        </div>
+      );
+    }
+
+    expect(() => ReactDOMServer.renderToString(<App />)).toWarnDev([
+      // ReactDOMServer(App > div > span)
+      'Invalid ARIA attribute `ariaTypo`. ARIA attributes follow the pattern aria-* and must be lowercase.\n' +
+        '    in span (at **)\n' +
+        '    in div (at **)\n' +
+        '    in App (at **)',
+      // ReactDOMServer(App > div > Child) >>> ReactDOMServer(App2) >>> ReactDOMServer(blink)
+      'Invalid ARIA attribute `ariaTypo2`. ARIA attributes follow the pattern aria-* and must be lowercase.\n' +
+        '    in blink (at **)',
+      // ReactDOMServer(App > div > Child) >>> ReactDOMServer(App2 > Child2 > span)
+      'Invalid ARIA attribute `ariaTypo3`. ARIA attributes follow the pattern aria-* and must be lowercase.\n' +
+        '    in span (at **)\n' +
+        '    in Child2 (at **)\n' +
+        '    in App2 (at **)',
+      // ReactDOMServer(App > div > Child > span)
+      'Invalid ARIA attribute `ariaTypo4`. ARIA attributes follow the pattern aria-* and must be lowercase.\n' +
+        '    in span (at **)\n' +
+        '    in Child (at **)\n' +
+        '    in div (at **)\n' +
+        '    in App (at **)',
+      // ReactDOMServer(App > div > font)
+      'Invalid ARIA attribute `ariaTypo5`. ARIA attributes follow the pattern aria-* and must be lowercase.\n' +
+        '    in font (at **)\n' +
         '    in div (at **)\n' +
         '    in App (at **)',
     ]);

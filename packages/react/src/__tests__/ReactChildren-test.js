@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -928,6 +928,7 @@ describe('ReactChildren', () => {
         'Warning: ' +
           'Each child in an array or iterator should have a unique "key" prop.' +
           ' See https://fb.me/react-warning-keys for more information.',
+        {withoutStack: true}, // There's nothing on the stack
       );
     });
   });

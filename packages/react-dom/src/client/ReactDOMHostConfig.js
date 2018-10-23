@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -7,13 +7,25 @@
  * @flow
  */
 
-import * as ReactScheduler from 'shared/ReactScheduler';
-
-import * as ReactDOMComponentTree from './ReactDOMComponentTree';
-import * as ReactDOMFiberComponent from './ReactDOMFiberComponent';
+import {precacheFiberNode, updateFiberProps} from './ReactDOMComponentTree';
+import {
+  createElement,
+  createTextNode,
+  setInitialProperties,
+  diffProperties,
+  updateProperties,
+  diffHydratedProperties,
+  diffHydratedText,
+  trapClickOnNonInteractiveElement,
+  warnForUnmatchedText,
+  warnForDeletedHydratableElement,
+  warnForDeletedHydratableText,
+  warnForInsertedHydratedElement,
+  warnForInsertedHydratedText,
+} from './ReactDOMComponent';
 import * as ReactInputSelection from './ReactInputSelection';
 import setTextContent from './setTextContent';
-import validateDOMNesting from './validateDOMNesting';
+import {validateDOMNesting, updatedAncestorInfo} from './validateDOMNesting';
 import * as ReactBrowserEventEmitter from '../events/ReactBrowserEventEmitter';
 import {getChildNamespace} from '../shared/DOMNamespaces';
 import {
@@ -24,6 +36,8 @@ import {
   DOCUMENT_FRAGMENT_NODE,
 } from '../shared/HTMLNodeType';
 
+import type {DOMContainer} from './ReactDOM';
+
 export type Type = string;
 export type Props = {
   autoFocus?: boolean,
@@ -31,6 +45,9 @@ export type Props = {
   hidden?: boolean,
   suppressHydrationWarning?: boolean,
   dangerouslySetInnerHTML?: mixed,
+  style?: {
+    display?: string,
+  },
 };
 export type Container = Element | Document;
 export type Instance = Element;
@@ -48,27 +65,18 @@ export type ChildSet = void; // Unused
 export type TimeoutHandle = TimeoutID;
 export type NoTimeout = -1;
 
-const {
-  createElement,
-  createTextNode,
-  setInitialProperties,
-  diffProperties,
-  updateProperties,
-  diffHydratedProperties,
-  diffHydratedText,
-  warnForUnmatchedText,
-  warnForDeletedHydratableElement,
-  warnForDeletedHydratableText,
-  warnForInsertedHydratedElement,
-  warnForInsertedHydratedText,
-} = ReactDOMFiberComponent;
-const {updatedAncestorInfo} = validateDOMNesting;
-const {precacheFiberNode, updateFiberProps} = ReactDOMComponentTree;
+export {
+  unstable_now as now,
+  unstable_scheduleCallback as scheduleDeferredCallback,
+  unstable_cancelCallback as cancelDeferredCallback,
+} from 'scheduler';
 
 let SUPPRESS_HYDRATION_WARNING;
 if (__DEV__) {
   SUPPRESS_HYDRATION_WARNING = 'suppressHydrationWarning';
 }
+
+const STYLE = 'style';
 
 let eventsEnabled: ?boolean = null;
 let selectionInformation: ?mixed = null;
@@ -113,7 +121,7 @@ export function getRootHostContext(
   }
   if (__DEV__) {
     const validatedTag = type.toLowerCase();
-    const ancestorInfo = updatedAncestorInfo(null, validatedTag, null);
+    const ancestorInfo = updatedAncestorInfo(null, validatedTag);
     return {namespace, ancestorInfo};
   }
   return namespace;
@@ -130,7 +138,6 @@ export function getChildHostContext(
     const ancestorInfo = updatedAncestorInfo(
       parentHostContextDev.ancestorInfo,
       type,
-      null,
     );
     return {namespace, ancestorInfo};
   }
@@ -175,7 +182,6 @@ export function createInstance(
       const ownAncestorInfo = updatedAncestorInfo(
         hostContextDev.ancestorInfo,
         type,
-        null,
       );
       validateDOMNesting(null, string, ownAncestorInfo);
     }
@@ -231,7 +237,6 @@ export function prepareUpdate(
       const ownAncestorInfo = updatedAncestorInfo(
         hostContextDev.ancestorInfo,
         type,
-        null,
       );
       validateDOMNesting(null, string, ownAncestorInfo);
     }
@@ -248,11 +253,13 @@ export function prepareUpdate(
 export function shouldSetTextContent(type: string, props: Props): boolean {
   return (
     type === 'textarea' ||
+    type === 'option' ||
+    type === 'noscript' ||
     typeof props.children === 'string' ||
     typeof props.children === 'number' ||
     (typeof props.dangerouslySetInnerHTML === 'object' &&
       props.dangerouslySetInnerHTML !== null &&
-      typeof props.dangerouslySetInnerHTML.__html === 'string')
+      props.dangerouslySetInnerHTML.__html != null)
   );
 }
 
@@ -275,11 +282,7 @@ export function createTextInstance(
   return textNode;
 }
 
-export const now = ReactScheduler.now;
 export const isPrimaryRenderer = true;
-export const scheduleDeferredCallback = ReactScheduler.scheduleWork;
-export const cancelDeferredCallback = ReactScheduler.cancelScheduledWork;
-
 export const scheduleTimeout = setTimeout;
 export const cancelTimeout = clearTimeout;
 export const noTimeout = -1;
@@ -346,13 +349,32 @@ export function appendChild(
 }
 
 export function appendChildToContainer(
-  container: Container,
+  container: DOMContainer,
   child: Instance | TextInstance,
 ): void {
+  let parentNode;
   if (container.nodeType === COMMENT_NODE) {
-    (container.parentNode: any).insertBefore(child, container);
+    parentNode = (container.parentNode: any);
+    parentNode.insertBefore(child, container);
   } else {
-    container.appendChild(child);
+    parentNode = container;
+    parentNode.appendChild(child);
+  }
+  // This container might be used for a portal.
+  // If something inside a portal is clicked, that click should bubble
+  // through the React tree. However, on Mobile Safari the click would
+  // never bubble through the *DOM* tree unless an ancestor with onclick
+  // event exists. So we wouldn't see it and dispatch it.
+  // This is why we ensure that non React root containers have inline onclick
+  // defined.
+  // https://github.com/facebook/react/issues/11918
+  const reactRootContainer = container._reactRootContainer;
+  if (
+    (reactRootContainer === null || reactRootContainer === undefined) &&
+    parentNode.onclick === null
+  ) {
+    // TODO: This cast may not be sound for SVG, MathML or custom elements.
+    trapClickOnNonInteractiveElement(((parentNode: any): HTMLElement));
   }
 }
 
@@ -392,6 +414,37 @@ export function removeChildFromContainer(
   } else {
     container.removeChild(child);
   }
+}
+
+export function hideInstance(instance: Instance): void {
+  // TODO: Does this work for all element types? What about MathML? Should we
+  // pass host context to this method?
+  instance = ((instance: any): HTMLElement);
+  instance.style.display = 'none';
+}
+
+export function hideTextInstance(textInstance: TextInstance): void {
+  textInstance.nodeValue = '';
+}
+
+export function unhideInstance(instance: Instance, props: Props): void {
+  instance = ((instance: any): HTMLElement);
+  const styleProp = props[STYLE];
+  const display =
+    styleProp !== undefined &&
+    styleProp !== null &&
+    styleProp.hasOwnProperty('display')
+      ? styleProp.display
+      : null;
+  // $FlowFixMe Setting a style property to null is the valid way to reset it.
+  instance.style.display = display;
+}
+
+export function unhideTextInstance(
+  textInstance: TextInstance,
+  text: string,
+): void {
+  textInstance.nodeValue = text;
 }
 
 // -------------------
@@ -521,7 +574,7 @@ export function didNotHydrateContainerInstance(
   instance: Instance | TextInstance,
 ) {
   if (__DEV__) {
-    if (instance.nodeType === 1) {
+    if (instance.nodeType === ELEMENT_NODE) {
       warnForDeletedHydratableElement(parentContainer, (instance: any));
     } else {
       warnForDeletedHydratableText(parentContainer, (instance: any));
@@ -536,7 +589,7 @@ export function didNotHydrateInstance(
   instance: Instance | TextInstance,
 ) {
   if (__DEV__ && parentProps[SUPPRESS_HYDRATION_WARNING] !== true) {
-    if (instance.nodeType === 1) {
+    if (instance.nodeType === ELEMENT_NODE) {
       warnForDeletedHydratableElement(parentInstance, (instance: any));
     } else {
       warnForDeletedHydratableText(parentInstance, (instance: any));
